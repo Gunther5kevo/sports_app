@@ -1,123 +1,257 @@
 // lib/screens/profile_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
+import '../providers/theme_provider.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
-      appBar: AppBar(
-        title: const Text(
-          'Profile',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              // TODO: Navigate to settings
-            },
+      backgroundColor: AppTheme.bgColor(context),
+      body: CustomScrollView(
+        slivers: [
+          _buildAppBar(context),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildStatsCard(context),
+                  const SizedBox(height: 24),
+                  _buildSectionTitle(context, 'Settings'),
+                  const SizedBox(height: 12),
+                  _buildMenuItem(
+                    context,
+                    Icons.person_outline,
+                    'Edit Profile',
+                    'Update your information',
+                  ),
+                  _buildMenuItem(
+                    context,
+                    Icons.notifications_none,
+                    'Notifications',
+                    'Manage alerts',
+                  ),
+                  _buildMenuItem(
+                    context,
+                    Icons.lock_outline,
+                    'Privacy',
+                    'Privacy settings',
+                  ),
+                  const SizedBox(height: 24),
+                  _buildSectionTitle(context, 'Preferences'),
+                  const SizedBox(height: 12),
+                  _buildThemeToggle(context),
+                  _buildMenuItem(
+                    context,
+                    Icons.language,
+                    'Language',
+                    'English',
+                  ),
+                  _buildMenuItem(
+                    context,
+                    Icons.sports_soccer,
+                    'Favorite Leagues',
+                    'Manage preferences',
+                  ),
+                  const SizedBox(height: 24),
+                  _buildSectionTitle(context, 'Support'),
+                  const SizedBox(height: 12),
+                  _buildMenuItem(
+                    context,
+                    Icons.help_outline,
+                    'Help & Support',
+                    'Get help',
+                  ),
+                  _buildMenuItem(
+                    context,
+                    Icons.info_outline,
+                    'About',
+                    'Version 1.0.0',
+                  ),
+                  const SizedBox(height: 24),
+                  _buildLogoutButton(context),
+                  const SizedBox(height: 40),
+                ],
+              ),
+            ),
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            _buildProfileHeader(theme),
-            const SizedBox(height: AppTheme.spacing20),
-            _buildMenuSection('Account', [
-              {'icon': Icons.person, 'title': 'Edit Profile', 'subtitle': 'Update your information'},
-              {'icon': Icons.notifications, 'title': 'Notifications', 'subtitle': 'Manage notifications'},
-              {'icon': Icons.lock, 'title': 'Privacy', 'subtitle': 'Privacy settings'},
-            ], theme),
-            const SizedBox(height: AppTheme.spacing12),
-            _buildMenuSection('Preferences', [
-              {'icon': Icons.palette, 'title': 'Theme', 'subtitle': 'Light or Dark mode'},
-              {'icon': Icons.language, 'title': 'Language', 'subtitle': 'English'},
-              {'icon': Icons.sports_soccer, 'title': 'Favorite Leagues', 'subtitle': 'Manage your preferences'},
-            ], theme),
-            const SizedBox(height: AppTheme.spacing12),
-            _buildMenuSection('Support', [
-              {'icon': Icons.help_outline, 'title': 'Help & Support', 'subtitle': 'Get help'},
-              {'icon': Icons.info_outline, 'title': 'About', 'subtitle': 'App version 1.0.0'},
-              {'icon': Icons.description, 'title': 'Terms & Conditions', 'subtitle': 'Read our terms'},
-            ], theme),
-            const SizedBox(height: AppTheme.spacing20),
-            _buildLogoutButton(theme),
-            const SizedBox(height: AppTheme.spacing20),
-          ],
+    );
+  }
+
+  Widget _buildAppBar(BuildContext context) {
+    return SliverAppBar(
+      expandedHeight: 200,
+      floating: false,
+      pinned: true,
+      backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
+      flexibleSpace: FlexibleSpaceBar(
+        background: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppTheme.primaryColor,
+                AppTheme.secondaryColor,
+              ],
+            ),
+          ),
+          child: SafeArea(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                  ),
+                  child: const CircleAvatar(
+                    radius: 40,
+                    backgroundColor: Colors.white,
+                    child: Icon(
+                      Icons.person,
+                      size: 40,
+                      color: AppTheme.primaryColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'John Doe',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'john.doe@email.com',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildQuickStat('24', 'Picks'),
+                    Container(
+                      width: 1,
+                      height: 30,
+                      color: Colors.white.withOpacity(0.3),
+                      margin: const EdgeInsets.symmetric(horizontal: 20),
+                    ),
+                    _buildQuickStat('68%', 'Win Rate'),
+                    Container(
+                      width: 1,
+                      height: 30,
+                      color: Colors.white.withOpacity(0.3),
+                      margin: const EdgeInsets.symmetric(horizontal: 20),
+                    ),
+                    _buildQuickStat('16', 'Wins'),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildProfileHeader(ThemeData theme) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppTheme.spacing20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppTheme.primaryColor,
-            AppTheme.secondaryColor,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+  Widget _buildQuickStat(String value, String label) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
         ),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.8),
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatsCard(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor(context),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.borderColor(context)),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            radius: 50,
-            backgroundColor: Colors.white,
-            child: Text(
-              'U',
-              style: AppTheme.heading1.copyWith(
-                color: AppTheme.primaryColor,
-                fontSize: 40,
-              ),
+          Text(
+            'Your Performance',
+            style: AppTheme.heading3.copyWith(
+              color: AppTheme.textPrimary(context),
             ),
           ),
-          const SizedBox(height: AppTheme.spacing12),
-          const Text(
-            'User Name',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: AppTheme.spacing4),
-          const Text(
-            'user@example.com',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.white70,
-            ),
-          ),
-          const SizedBox(height: AppTheme.spacing16),
+          const SizedBox(height: 16),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildStatItem('24', 'Predictions', Colors.white),
-              Container(
-                height: 40,
-                width: 1,
-                color: Colors.white30,
+              Expanded(
+                child: _buildStatItem(
+                  context,
+                  '342',
+                  'Total Bets',
+                  Icons.sports_soccer,
+                ),
               ),
-              _buildStatItem('68%', 'Accuracy', Colors.white),
-              Container(
-                height: 40,
-                width: 1,
-                color: Colors.white30,
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildStatItem(
+                  context,
+                  '67%',
+                  'Success',
+                  Icons.check_circle,
+                ),
               ),
-              _buildStatItem('16', 'Won', Colors.white),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildStatItem(
+                  context,
+                  '+94',
+                  'Units',
+                  Icons.account_balance_wallet,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildStatItem(
+                  context,
+                  '1.88',
+                  'Avg Odds',
+                  Icons.trending_up,
+                ),
+              ),
             ],
           ),
         ],
@@ -125,122 +259,158 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatItem(String value, String label, Color color) {
-    return Column(
-      children: [
-        Text(
-          value,
+  Widget _buildStatItem(
+    BuildContext context,
+    String value,
+    String label,
+    IconData icon,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryColor.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: AppTheme.primaryColor),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.primaryColor,
+                    fontSize: 16,
+                  ),
+                ),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppTheme.textSecondary(context),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThemeToggle(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final isDark = themeProvider.isDarkMode;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.borderColor(context)),
+      ),
+      child: ListTile(
+        leading: Icon(
+          isDark ? Icons.dark_mode : Icons.light_mode,
+          color: AppTheme.primaryColor,
+        ),
+        title: Text(
+          'Theme',
           style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: color,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.textPrimary(context),
           ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          label,
+        subtitle: Text(
+          isDark ? 'Dark mode' : 'Light mode',
           style: TextStyle(
             fontSize: 12,
-            color: color.withValues(alpha: 0.7),
+            color: AppTheme.textSecondary(context),
           ),
         ),
-      ],
+        trailing: Switch(
+          value: isDark,
+          onChanged: (_) => themeProvider.toggleTheme(),
+          activeColor: AppTheme.primaryColor,
+        ),
+        onTap: () => themeProvider.toggleTheme(),
+      ),
     );
   }
 
-  Widget _buildMenuSection(String title, List<Map<String, dynamic>> items, ThemeData theme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-          child: Text(
-            title,
-            style: AppTheme.bodyMedium.copyWith(
-              fontWeight: FontWeight.w600,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+  Widget _buildMenuItem(
+    BuildContext context,
+    IconData icon,
+    String title,
+    String subtitle,
+  ) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.borderColor(context)),
+      ),
+      child: ListTile(
+        leading: Icon(icon, color: AppTheme.primaryColor),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: AppTheme.textPrimary(context),
           ),
         ),
-        const SizedBox(height: AppTheme.spacing8),
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-          ),
-          child: Column(
-            children: items.asMap().entries.map((entry) {
-              final index = entry.key;
-              final item = entry.value;
-              final isLast = index == items.length - 1;
-              
-              return Column(
-                children: [
-                  ListTile(
-                    leading: Icon(
-                      item['icon'] as IconData,
-                      color: theme.colorScheme.primary,
-                    ),
-                    title: Text(
-                      item['title'] as String,
-                      style: AppTheme.bodyMedium.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    subtitle: Text(
-                      item['subtitle'] as String,
-                      style: AppTheme.bodySmall.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    trailing: Icon(
-                      Icons.chevron_right,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    onTap: () {
-                      // TODO: Handle navigation
-                    },
-                  ),
-                  if (!isLast)
-                    Divider(
-                      height: 1,
-                      indent: 72,
-                      color: theme.colorScheme.outline.withValues(alpha: 0.2),
-                    ),
-                ],
-              );
-            }).toList(),
+        subtitle: Text(
+          subtitle,
+          style: TextStyle(
+            fontSize: 12,
+            color: AppTheme.textSecondary(context),
           ),
         ),
-      ],
+        trailing: Icon(
+          Icons.chevron_right,
+          color: AppTheme.textSecondary(context),
+        ),
+        onTap: () {},
+      ),
     );
   }
 
-  Widget _buildLogoutButton(ThemeData theme) {
+  Widget _buildLogoutButton(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: () {},
+        icon: const Icon(Icons.logout, size: 18),
+        label: const Text('Logout'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppTheme.dangerColor,
+          side: const BorderSide(color: AppTheme.dangerColor),
+          padding: const EdgeInsets.all(16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(BuildContext context, String title) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      child: SizedBox(
-        width: double.infinity,
-        child: OutlinedButton.icon(
-          onPressed: () {
-            // TODO: Handle logout
-          },
-          icon: const Icon(Icons.logout, color: AppTheme.dangerColor),
-          label: const Text(
-            'Logout',
-            style: TextStyle(
-              color: AppTheme.dangerColor,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.all(AppTheme.spacing16),
-            side: const BorderSide(color: AppTheme.dangerColor),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-            ),
-          ),
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(
+        title.toUpperCase(),
+        style: TextStyle(
+          fontSize: 12,
+          color: AppTheme.textSecondary(context),
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.5,
         ),
       ),
     );

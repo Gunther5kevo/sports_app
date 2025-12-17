@@ -19,6 +19,11 @@ class MatchCard extends StatelessWidget {
     
     return Card(
       margin: const EdgeInsets.only(bottom: AppTheme.spacing16),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(AppTheme.spacing16),
         child: Column(
@@ -44,13 +49,13 @@ class MatchCard extends StatelessWidget {
         vertical: AppTheme.spacing4,
       ),
       decoration: BoxDecoration(
-        color: theme.colorScheme.primary.withValues(alpha: 0.1),
+        color: AppTheme.primaryColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
       ),
       child: Text(
         analysis.league,
         style: AppTheme.caption.copyWith(
-          color: theme.colorScheme.primary,
+          color: AppTheme.primaryColor,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -69,13 +74,13 @@ class MatchCard extends StatelessWidget {
       padding: const EdgeInsets.all(AppTheme.spacing12),
       decoration: BoxDecoration(
         color: analysis.hasRecommendation
-            ? theme.colorScheme.primaryContainer
-            : theme.colorScheme.surfaceContainerHighest,
+            ? AppTheme.primaryColor.withOpacity(0.08)
+            : Colors.grey.shade100,
         borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
         border: Border.all(
           color: analysis.hasRecommendation
-              ? theme.colorScheme.primary.withValues(alpha: 0.3)
-              : theme.colorScheme.outline.withValues(alpha: 0.3),
+              ? AppTheme.primaryColor.withOpacity(0.3)
+              : Colors.grey.shade300,
         ),
       ),
       child: Column(
@@ -100,8 +105,8 @@ class MatchCard extends StatelessWidget {
           analysis.hasRecommendation ? Icons.check_circle : Icons.block,
           size: 20,
           color: analysis.hasRecommendation
-              ? theme.colorScheme.primary
-              : theme.colorScheme.onSurfaceVariant,
+              ? AppTheme.primaryColor
+              : Colors.grey.shade600,
         ),
         const SizedBox(width: AppTheme.spacing8),
         Expanded(
@@ -110,8 +115,8 @@ class MatchCard extends StatelessWidget {
             style: AppTheme.bodyLarge.copyWith(
               fontWeight: FontWeight.w600,
               color: analysis.hasRecommendation
-                  ? theme.colorScheme.onPrimaryContainer
-                  : theme.colorScheme.onSurfaceVariant,
+                  ? AppTheme.primaryColor
+                  : Colors.grey.shade700,
             ),
           ),
         ),
@@ -150,30 +155,33 @@ class MatchCard extends StatelessWidget {
         vertical: AppTheme.spacing8,
       ),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+        border: Border.all(color: Colors.grey.shade200),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: theme.colorScheme.primary),
+          Icon(icon, size: 16, color: AppTheme.primaryColor),
           const SizedBox(width: 6),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: AppTheme.caption.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: AppTheme.caption.copyWith(
+                    color: Colors.grey.shade600,
+                  ),
                 ),
-              ),
-              Text(
-                value,
-                style: AppTheme.bodyMedium.copyWith(
-                  fontWeight: FontWeight.bold,
+                Text(
+                  value,
+                  style: AppTheme.bodyMedium.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -189,9 +197,9 @@ class MatchCard extends StatelessWidget {
         vertical: 6,
       ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
+        color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
+        border: Border.all(color: color.withOpacity(0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -218,7 +226,7 @@ class MatchCard extends StatelessWidget {
           AppConstants.analysisLabel,
           style: AppTheme.bodyMedium.copyWith(
             fontWeight: FontWeight.w600,
-            color: theme.colorScheme.onSurfaceVariant,
+            color: Colors.grey.shade700,
           ),
         ),
         const SizedBox(height: AppTheme.spacing8),
@@ -230,7 +238,7 @@ class MatchCard extends StatelessWidget {
               Text(
                 '• ',
                 style: TextStyle(
-                  color: theme.colorScheme.primary,
+                  color: AppTheme.primaryColor,
                   fontSize: 16,
                 ),
               ),
@@ -238,7 +246,7 @@ class MatchCard extends StatelessWidget {
                 child: Text(
                   reason,
                   style: AppTheme.bodySmall.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                    color: Colors.grey.shade700,
                     height: 1.4,
                   ),
                 ),

@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import '../models/match.dart';
 import '../theme/app_theme.dart';
+import '../services/api_service.dart';
+import '../constants/app_constants.dart';
 import '../widgets/match_item_card.dart';
 
 class MatchesScreen extends StatefulWidget {
@@ -12,10 +14,13 @@ class MatchesScreen extends StatefulWidget {
   State<MatchesScreen> createState() => _MatchesScreenState();
 }
 
-class _MatchesScreenState extends State<MatchesScreen> {
+class _MatchesScreenState extends State<MatchesScreen> with AutomaticKeepAliveClientMixin {
   List<Match> matches = [];
-  bool isLoading = false;
-  String selectedFilter = 'All';
+  bool isLoading = true;
+  String selectedLeague = 'All Leagues';
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -23,185 +28,166 @@ class _MatchesScreenState extends State<MatchesScreen> {
     _loadMatches();
   }
 
-  void _loadMatches() {
-    setState(() {
-      isLoading = true;
-    });
-
-    // Simulate API call
-    Future.delayed(const Duration(seconds: 1), () {
-      setState(() {
-        matches = _getSampleMatches();
-        isLoading = false;
-      });
-    });
-  }
-
-  List<Match> _getSampleMatches() {
-    final now = DateTime.now();
-    return [
-      Match(
-        id: '1',
-        homeTeam: 'Manchester City',
-        awayTeam: 'Liverpool',
-        league: 'Premier League',
-        dateTime: now.add(const Duration(hours: 3)),
-        odds: MatchOdds(
-          homeWin: 2.10,
-          draw: 3.40,
-          awayWin: 3.20,
-          over25: 1.65,
-          under25: 2.20,
-        ),
-      ),
-      Match(
-        id: '2',
-        homeTeam: 'Real Madrid',
-        awayTeam: 'Barcelona',
-        league: 'La Liga',
-        dateTime: now.add(const Duration(hours: 5)),
-        odds: MatchOdds(
-          homeWin: 2.30,
-          draw: 3.20,
-          awayWin: 2.90,
-          over25: 1.75,
-          under25: 2.05,
-        ),
-      ),
-      Match(
-        id: '3',
-        homeTeam: 'Bayern Munich',
-        awayTeam: 'Dortmund',
-        league: 'Bundesliga',
-        dateTime: now.add(const Duration(hours: 4)),
-        odds: MatchOdds(
-          homeWin: 1.85,
-          draw: 3.60,
-          awayWin: 3.80,
-          over25: 1.55,
-          under25: 2.35,
-        ),
-      ),
-      Match(
-        id: '4',
-        homeTeam: 'PSG',
-        awayTeam: 'Marseille',
-        league: 'Ligue 1',
-        dateTime: now.add(const Duration(hours: 6)),
-        odds: MatchOdds(
-          homeWin: 1.70,
-          draw: 3.80,
-          awayWin: 4.50,
-          over25: 1.60,
-          under25: 2.25,
-        ),
-      ),
-    ];
+  Future<void> _loadMatches() async {
+    setState(() => isLoading = true);
+    
+    try {
+      final fetchedMatches = await ApiService.getTodayMatches();
+      if (mounted) {
+        setState(() {
+          matches = fetchedMatches;
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load matches: $e'),
+            backgroundColor: AppTheme.dangerColor,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
   List<Match> get filteredMatches {
-    if (selectedFilter == 'All') return matches;
-    return matches.where((m) => m.league == selectedFilter).toList();
+    if (selectedLeague == 'All Leagues') return matches;
+    return matches.where((m) => m.league == selectedLeague).toList();
+  }
+
+  Set<String> get availableLeagues {
+    return {'All Leagues', ...matches.map((m) => m.league)};
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    
+    super.build(context);
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
-      appBar: AppBar(
-        title: const Text(
+      backgroundColor: Colors.grey.shade50,
+      body: CustomScrollView(
+        slivers: [
+          _buildAppBar(),
+          if (!isLoading && matches.isNotEmpty)
+            SliverToBoxAdapter(child: _buildLeagueFilter()),
+          isLoading
+              ? const SliverFillRemaining(
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: AppTheme.spacing16),
+                        Text(AppConstants.loadingMessage),
+                      ],
+                    ),
+                  ),
+                )
+              : filteredMatches.isEmpty
+                  ? _buildEmptyState()
+                  : _buildMatchesList(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAppBar() {
+    return SliverAppBar(
+      expandedHeight: 140,
+      floating: false,
+      pinned: true,
+      backgroundColor: AppTheme.primaryColor,
+      flexibleSpace: FlexibleSpaceBar(
+        title: Text(
           'Today\'s Matches',
-          style: TextStyle(fontWeight: FontWeight.bold),
+          style: AppTheme.heading3.copyWith(color: Colors.white),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.filter_list),
-            onPressed: _showFilterDialog,
+        titlePadding: const EdgeInsets.only(left: 16, bottom: 16),
+        background: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [AppTheme.primaryColor, AppTheme.secondaryColor],
+            ),
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadMatches,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 56),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.calendar_today, color: Colors.white70, size: 16),
+                      const SizedBox(width: AppTheme.spacing8),
+                      Text(
+                        _getFormattedDate(),
+                        style: AppTheme.bodyMedium.copyWith(color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppTheme.spacing8),
+                  Text(
+                    '${matches.length} matches available',
+                    style: AppTheme.bodyLarge.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ],
+        ),
       ),
-      body: Column(
-        children: [
-          _buildDateHeader(theme),
-          _buildFilterChips(),
-          Expanded(
-            child: isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : filteredMatches.isEmpty
-                    ? _buildEmptyState(theme)
-                    : _buildMatchesList(),
-          ),
-        ],
-      ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.refresh_rounded),
+          tooltip: AppConstants.refreshTooltip,
+          onPressed: isLoading ? null : _loadMatches,
+        ),
+        const SizedBox(width: AppTheme.spacing8),
+      ],
     );
   }
 
-  Widget _buildDateHeader(ThemeData theme) {
-    final now = DateTime.now();
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  Widget _buildLeagueFilter() {
+    final leagues = availableLeagues.toList();
     
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppTheme.spacing16),
-      color: theme.colorScheme.primaryContainer,
-      child: Row(
-        children: [
-          Icon(
-            Icons.calendar_today,
-            size: 20,
-            color: theme.colorScheme.onPrimaryContainer,
-          ),
-          const SizedBox(width: AppTheme.spacing8),
-          Text(
-            'Today, ${now.day} ${months[now.month - 1]} ${now.year}',
-            style: AppTheme.bodyLarge.copyWith(
-              fontWeight: FontWeight.w600,
-              color: theme.colorScheme.onPrimaryContainer,
-            ),
-          ),
-          const Spacer(),
-          Text(
-            '${matches.length} matches',
-            style: AppTheme.bodyMedium.copyWith(
-              color: theme.colorScheme.onPrimaryContainer.withValues(alpha: 0.7),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFilterChips() {
-    final leagues = ['All', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1'];
-    
-    return Container(
-      height: 50,
-      padding: const EdgeInsets.symmetric(vertical: AppTheme.spacing8),
+      height: 56,
+      margin: const EdgeInsets.symmetric(vertical: AppTheme.spacing16),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
         itemCount: leagues.length,
         itemBuilder: (context, index) {
           final league = leagues[index];
-          final isSelected = selectedFilter == league;
+          final selected = selectedLeague == league;
           
           return Padding(
             padding: const EdgeInsets.only(right: AppTheme.spacing8),
             child: FilterChip(
               label: Text(league),
-              selected: isSelected,
-              onSelected: (selected) {
-                setState(() {
-                  selectedFilter = league;
-                });
-              },
+              selected: selected,
+              onSelected: (_) => setState(() => selectedLeague = league),
+              backgroundColor: Colors.white,
+              selectedColor: AppTheme.primaryColor.withOpacity(0.15),
+              checkmarkColor: AppTheme.primaryColor,
+              labelStyle: TextStyle(
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                color: selected ? AppTheme.primaryColor : Colors.grey.shade700,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                side: BorderSide(
+                  color: selected ? AppTheme.primaryColor : Colors.grey.shade300,
+                ),
+              ),
             ),
           );
         },
@@ -210,38 +196,44 @@ class _MatchesScreenState extends State<MatchesScreen> {
   }
 
   Widget _buildMatchesList() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(AppTheme.spacing16),
-      itemCount: filteredMatches.length,
-      itemBuilder: (context, index) {
-        return MatchItemCard(match: filteredMatches[index]);
-      },
-    );
-  }
-
-  Widget _buildEmptyState(ThemeData theme) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.sports_soccer,
-            size: 80,
-            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
-          ),
-          const SizedBox(height: AppTheme.spacing16),
-          Text(
-            'No matches found',
-            style: AppTheme.heading3.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) => MatchItemCard(match: filteredMatches[index]),
+          childCount: filteredMatches.length,
+        ),
       ),
     );
   }
 
-  void _showFilterDialog() {
-    // TODO: Implement filter dialog
+  Widget _buildEmptyState() {
+    return SliverFillRemaining(
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.sports_soccer_outlined, size: 64, color: Colors.grey.shade300),
+            const SizedBox(height: AppTheme.spacing16),
+            Text(
+              AppConstants.noMatchesAvailable,
+              style: AppTheme.heading3.copyWith(color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: AppTheme.spacing8),
+            Text(
+              AppConstants.checkBackLater,
+              style: AppTheme.bodyMedium.copyWith(color: Colors.grey.shade500),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getFormattedDate() {
+    final now = DateTime.now();
+    final weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${weekdays[now.weekday - 1]}, ${now.day} ${months[now.month - 1]}';
   }
 }

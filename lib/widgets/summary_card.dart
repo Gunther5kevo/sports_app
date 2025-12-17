@@ -49,8 +49,6 @@ class SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    
     if (analyses.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -58,26 +56,38 @@ class SummaryCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppTheme.spacing16),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+        border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: Colors.black.withOpacity(0.03),
             blurRadius: 10,
-            offset: const Offset(0, -2),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Daily Summary',
-            style: AppTheme.bodyLarge.copyWith(
-              fontWeight: FontWeight.bold,
-              color: theme.colorScheme.onSurface,
-            ),
+          Row(
+            children: [
+              Icon(
+                Icons.summarize,
+                color: AppTheme.primaryColor,
+                size: 20,
+              ),
+              const SizedBox(width: AppTheme.spacing8),
+              Text(
+                'Daily Summary',
+                style: AppTheme.heading3.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primaryColor,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: AppTheme.spacing12),
+          const SizedBox(height: AppTheme.spacing16),
           Row(
             children: [
               Expanded(
@@ -85,7 +95,6 @@ class SummaryCard extends StatelessWidget {
                   AppConstants.totalMatchesAnalyzed,
                   totalMatches.toString(),
                   Icons.sports_soccer,
-                  theme,
                 ),
               ),
               const SizedBox(width: AppTheme.spacing12),
@@ -94,44 +103,41 @@ class SummaryCard extends StatelessWidget {
                   AppConstants.totalBetsRecommended,
                   totalBets.toString(),
                   Icons.recommend,
-                  theme,
                 ),
               ),
               const SizedBox(width: AppTheme.spacing12),
               Expanded(
-                child: _buildRiskItem(theme),
+                child: _buildRiskItem(),
               ),
             ],
           ),
           const SizedBox(height: AppTheme.spacing12),
-          _buildResponsibleGamblingNotice(theme),
+          _buildResponsibleGamblingNotice(),
         ],
       ),
     );
   }
 
-  Widget _buildSummaryItem(String label, String value, IconData icon, ThemeData theme) {
+  Widget _buildSummaryItem(String label, String value, IconData icon) {
     return Container(
       padding: const EdgeInsets.all(AppTheme.spacing12),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: AppTheme.primaryColor.withOpacity(0.05),
         borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-        border: Border.all(
-          color: theme.colorScheme.outline.withValues(alpha: 0.2),
-        ),
       ),
       child: Column(
         children: [
           Icon(
             icon,
             size: 24,
-            color: theme.colorScheme.primary,
+            color: AppTheme.primaryColor,
           ),
           const SizedBox(height: AppTheme.spacing8),
           Text(
             value,
             style: AppTheme.heading2.copyWith(
-              color: theme.colorScheme.onSurface,
+              color: AppTheme.primaryColor,
+              fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: AppTheme.spacing4),
@@ -139,24 +145,26 @@ class SummaryCard extends StatelessWidget {
             label,
             textAlign: TextAlign.center,
             style: AppTheme.caption.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+              color: Colors.grey.shade600,
             ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildRiskItem(ThemeData theme) {
+  Widget _buildRiskItem() {
     final color = _getRiskColor();
     
     return Container(
       padding: const EdgeInsets.all(AppTheme.spacing12),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
+        color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
         border: Border.all(
-          color: color.withValues(alpha: 0.3),
+          color: color.withOpacity(0.3),
         ),
       ),
       child: Column(
@@ -171,6 +179,7 @@ class SummaryCard extends StatelessWidget {
             riskLevel,
             style: AppTheme.heading2.copyWith(
               color: color,
+              fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: AppTheme.spacing4),
@@ -180,35 +189,38 @@ class SummaryCard extends StatelessWidget {
             style: AppTheme.caption.copyWith(
               color: color,
             ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildResponsibleGamblingNotice(ThemeData theme) {
+  Widget _buildResponsibleGamblingNotice() {
     return Container(
       padding: const EdgeInsets.all(AppTheme.spacing12),
       decoration: BoxDecoration(
-        color: theme.colorScheme.errorContainer.withValues(alpha: 0.3),
+        color: AppTheme.warningColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
         border: Border.all(
-          color: theme.colorScheme.error.withValues(alpha: 0.3),
+          color: AppTheme.warningColor.withOpacity(0.3),
         ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
             Icons.info_outline,
             size: 16,
-            color: theme.colorScheme.error,
+            color: AppTheme.warningColor,
           ),
           const SizedBox(width: AppTheme.spacing8),
           Expanded(
             child: Text(
               AppConstants.responsibleGamblingNotice,
               style: AppTheme.caption.copyWith(
-                color: theme.colorScheme.onErrorContainer,
+                color: Colors.grey.shade800,
                 height: 1.3,
               ),
             ),
