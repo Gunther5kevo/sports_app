@@ -38,6 +38,10 @@ migrate_working_dir/
 *.env
 !.env.example
 
+# Firebase
+.firebase/
+firebase-debug.log
+
 # Symbolication related
 app.*.symbols
 
