@@ -18,16 +18,10 @@ class _StatisticsScreenState extends State<StatisticsScreen>
   @override
   bool get wantKeepAlive => true;
 
-  String selectedPeriod = 'week';
   Map<String, dynamic>? stats;
   bool isLoading = true;
   String? userId;
-
-  static const periodLabels = {
-    'week': 'This Week',
-    'month': 'This Month',
-    'all': 'All Time',
-  };
+  String? errorMessage;
 
   @override
   void initState() {
@@ -36,34 +30,50 @@ class _StatisticsScreenState extends State<StatisticsScreen>
   }
 
   Future<void> _initializeUser() async {
-    // Get current user (or create anonymous user)
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      userId = user.uid;
-    } else {
-      // Sign in anonymously for demo purposes
-      final userCredential = await FirebaseAuth.instance.signInAnonymously();
-      userId = userCredential.user?.uid;
-    }
-    
-    if (mounted) {
-      _loadStats();
+    try {
+      User? user = FirebaseAuth.instance.currentUser;
+      
+      if (user == null) {
+        final userCredential = await FirebaseAuth.instance.signInAnonymously();
+        user = userCredential.user;
+      }
+      
+      if (user != null && user.uid != null) {
+        setState(() {
+          userId = user!.uid;
+        });
+        await _loadStats();
+      } else {
+        setState(() {
+          isLoading = false;
+          errorMessage = 'Failed to authenticate';
+        });
+      }
+    } catch (e) {
+      print('❌ Auth error: $e');
+      setState(() {
+        isLoading = false;
+        errorMessage = 'Authentication failed';
+      });
     }
   }
 
   Future<void> _loadStats() async {
     if (userId == null) {
-      setState(() => isLoading = false);
+      setState(() {
+        isLoading = false;
+        errorMessage = 'User ID not available';
+      });
       return;
     }
 
-    setState(() => isLoading = true);
+    setState(() {
+      isLoading = true;
+      errorMessage = null;
+    });
     
     try {
-      final data = await ApiService.getUserStats(
-        userId: userId!,
-        period: selectedPeriod,
-      );
+      final data = await ApiService.getUserStats(userId!);
       
       if (mounted) {
         setState(() {
@@ -72,14 +82,13 @@ class _StatisticsScreenState extends State<StatisticsScreen>
         });
       }
     } catch (e) {
+      print('❌ Error loading stats: $e');
+      
       if (mounted) {
-        setState(() => isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to load stats: $e'),
-            backgroundColor: AppTheme.dangerColor,
-          ),
-        );
+        setState(() {
+          isLoading = false;
+          errorMessage = 'Failed to load statistics';
+        });
       }
     }
   }
@@ -95,30 +104,52 @@ class _StatisticsScreenState extends State<StatisticsScreen>
         child: CustomScrollView(
           slivers: [
             _buildHeader(),
-            SliverToBoxAdapter(child: _buildPeriodSelector()),
+            
             if (isLoading)
               const SliverFillRemaining(
-                child: Center(child: CircularProgressIndicator()),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 16),
+                      Text('Loading statistics...'),
+                    ],
+                  ),
+                ),
               )
-            else if (userId == null)
+            
+            else if (errorMessage != null)
               SliverFillRemaining(
                 child: Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.person_off, size: 64, color: Colors.grey.shade400),
+                      Icon(Icons.error_outline, size: 64, color: Colors.grey.shade400),
                       const SizedBox(height: 16),
                       Text(
-                        'Please sign in to view statistics',
+                        errorMessage!,
                         style: TextStyle(
                           fontSize: 16,
                           color: AppTheme.textSecondary(context),
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: _loadStats,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Retry'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryColor,
+                          foregroundColor: Colors.white,
                         ),
                       ),
                     ],
                   ),
                 ),
               )
+            
             else if (stats != null) ...[
               SliverPadding(
                 padding: const EdgeInsets.all(16),
@@ -128,12 +159,14 @@ class _StatisticsScreenState extends State<StatisticsScreen>
                     const SizedBox(height: 20),
                     _buildWinRateCard(),
                     const SizedBox(height: 20),
-                    if ((stats!['league_performance'] as List).isNotEmpty)
-                      _buildLeaguePerformance(),
-                    if ((stats!['league_performance'] as List).isNotEmpty)
-                      const SizedBox(height: 20),
-                    if ((stats!['recent_results'] as List).isNotEmpty)
-                      _buildRecentResults(),
+                    _buildProfitCard(),
+                    const SizedBox(height: 20),
+                    _buildStreakCard(),
+                    const SizedBox(height: 20),
+                    _buildInsightsCard(),
+                    const SizedBox(height: 20),
+                    _buildQuickActions(),
+                    const SizedBox(height: 20),
                   ]),
                 ),
               ),
@@ -146,12 +179,33 @@ class _StatisticsScreenState extends State<StatisticsScreen>
 
   Widget _buildHeader() {
     return SliverAppBar(
-      expandedHeight: 120,
+      expandedHeight: 140,
       floating: false,
       pinned: true,
       backgroundColor: AppTheme.primaryColor,
       flexibleSpace: FlexibleSpaceBar(
-        title: const Text('Performance', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Column(
+          mainAxisAlignment: MainAxisAlignment.end,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Your Performance',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+              ),
+            ),
+            if (stats != null)
+              Text(
+                '${stats!['totalPredictions'] ?? 0} predictions tracked',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.normal,
+                  color: Colors.white70,
+                ),
+              ),
+          ],
+        ),
         titlePadding: const EdgeInsets.only(left: 16, bottom: 16),
         background: Container(
           decoration: const BoxDecoration(
@@ -161,38 +215,20 @@ class _StatisticsScreenState extends State<StatisticsScreen>
               colors: [AppTheme.primaryColor, AppTheme.secondaryColor],
             ),
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPeriodSelector() {
-    return Container(
-      height: 56,
-      margin: const EdgeInsets.symmetric(vertical: 16),
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        children: periodLabels.entries.map((entry) {
-          final selected = selectedPeriod == entry.key;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: ChoiceChip(
-              label: Text(entry.value),
-              selected: selected,
-              onSelected: (_) {
-                setState(() => selectedPeriod = entry.key);
-                _loadStats();
-              },
-              backgroundColor: AppTheme.cardColor(context),
-              selectedColor: AppTheme.primaryColor,
-              labelStyle: TextStyle(
-                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-                color: selected ? Colors.white : AppTheme.textPrimary(context),
+          child: Stack(
+            children: [
+              Positioned(
+                right: -20,
+                top: 20,
+                child: Icon(
+                  Icons.analytics_outlined,
+                  size: 120,
+                  color: Colors.white.withOpacity(0.1),
+                ),
               ),
-            ),
-          );
-        }).toList(),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -208,46 +244,32 @@ class _StatisticsScreenState extends State<StatisticsScreen>
           children: [
             _StatCard(
               icon: Icons.lightbulb_outline,
-              value: '${stats!['total_predictions'] ?? 0}',
-              label: 'Predictions',
+              value: '${stats!['totalPredictions'] ?? 0}',
+              label: 'Total Tips',
               color: AppTheme.primaryColor,
               width: (constraints.maxWidth - 12) / 2,
             ),
             _StatCard(
-              icon: Icons.trending_up,
-              value: '${stats!['win_rate'] ?? 0}%',
-              label: 'Win Rate',
-              color: AppTheme.successColor,
-              width: (constraints.maxWidth - 12) / 2,
-            ),
-            _StatCard(
               icon: Icons.check_circle_outline,
-              value: '${stats!['won'] ?? 0}',
-              label: 'Won',
+              value: '${stats!['correctPredictions'] ?? 0}',
+              label: 'Correct',
               color: AppTheme.successColor,
               width: (constraints.maxWidth - 12) / 2,
             ),
             _StatCard(
-              icon: Icons.cancel_outlined,
-              value: '${stats!['lost'] ?? 0}',
-              label: 'Lost',
-              color: AppTheme.dangerColor,
+              icon: Icons.trending_up,
+              value: '${(stats!['winRate'] ?? 0.0).toStringAsFixed(1)}%',
+              label: 'Win Rate',
+              color: _getWinRateColor(stats!['winRate'] ?? 0.0),
               width: (constraints.maxWidth - 12) / 2,
             ),
             _StatCard(
               icon: Icons.show_chart,
-              value: '${stats!['avg_odds'] ?? 0.0}',
+              value: (stats!['averageOdds'] ?? 0.0) > 0 
+                  ? '${(stats!['averageOdds'] ?? 0.0).toStringAsFixed(2)}'
+                  : 'N/A',
               label: 'Avg Odds',
               color: AppTheme.warningColor,
-              width: (constraints.maxWidth - 12) / 2,
-            ),
-            _StatCard(
-              icon: Icons.account_balance_wallet_outlined,
-              value: '${stats!['profit'] ?? '+0.0'}',
-              label: 'Profit',
-              color: (stats!['profit']?.toString() ?? '+0.0').startsWith('+')
-                  ? AppTheme.successColor
-                  : AppTheme.dangerColor,
               width: (constraints.maxWidth - 12) / 2,
             ),
           ],
@@ -256,10 +278,19 @@ class _StatisticsScreenState extends State<StatisticsScreen>
     );
   }
 
+  Color _getWinRateColor(double winRate) {
+    if (winRate >= 70) return AppTheme.successColor;
+    if (winRate >= 50) return AppTheme.warningColor;
+    return AppTheme.dangerColor;
+  }
+
   Widget _buildWinRateCard() {
     if (stats == null) return const SizedBox();
     
-    final winRate = stats!['win_rate'] ?? 0;
+    final totalPredictions = stats!['totalPredictions'] ?? 0;
+    final correctPredictions = stats!['correctPredictions'] ?? 0;
+    final winRate = stats!['winRate'] ?? 0.0;
+    final lost = totalPredictions - correctPredictions;
     
     return Card(
       elevation: 0,
@@ -286,13 +317,13 @@ class _StatisticsScreenState extends State<StatisticsScreen>
                 ),
                 Chip(
                   label: Text(
-                    '$winRate%',
-                    style: const TextStyle(
-                      color: AppTheme.successColor,
+                    '${winRate.toStringAsFixed(1)}%',
+                    style: TextStyle(
+                      color: _getWinRateColor(winRate),
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  backgroundColor: AppTheme.successColor.withOpacity(0.1),
+                  backgroundColor: _getWinRateColor(winRate).withOpacity(0.1),
                   side: BorderSide.none,
                 ),
               ],
@@ -301,10 +332,10 @@ class _StatisticsScreenState extends State<StatisticsScreen>
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: LinearProgressIndicator(
-                value: (winRate / 100).clamp(0.0, 1.0),
+                value: totalPredictions > 0 ? (winRate / 100).clamp(0.0, 1.0) : 0.0,
                 minHeight: 16,
                 backgroundColor: AppTheme.borderColor(context),
-                valueColor: const AlwaysStoppedAnimation(AppTheme.successColor),
+                valueColor: AlwaysStoppedAnimation(_getWinRateColor(winRate)),
               ),
             ),
             const SizedBox(height: 16),
@@ -313,13 +344,13 @@ class _StatisticsScreenState extends State<StatisticsScreen>
                 _LegendItem(
                   color: AppTheme.successColor,
                   label: 'Won',
-                  value: stats!['won'] ?? 0,
+                  value: correctPredictions,
                 ),
                 const SizedBox(width: 20),
                 _LegendItem(
                   color: AppTheme.dangerColor,
                   label: 'Lost',
-                  value: stats!['lost'] ?? 0,
+                  value: lost,
                 ),
               ],
             ),
@@ -329,58 +360,406 @@ class _StatisticsScreenState extends State<StatisticsScreen>
     );
   }
 
-  Widget _buildLeaguePerformance() {
-    final leagues = stats!['league_performance'] as List;
-    if (leagues.isEmpty) return const SizedBox();
+  Widget _buildProfitCard() {
+    if (stats == null) return const SizedBox();
     
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Text(
-            'League Performance',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: AppTheme.textPrimary(context),
+    final profit = (stats!['totalProfit'] ?? 0.0).toDouble();
+    final isProfit = profit >= 0;
+    
+    return Card(
+      elevation: 0,
+      color: AppTheme.cardColor(context),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: AppTheme.borderColor(context)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: (isProfit ? AppTheme.successColor : AppTheme.dangerColor)
+                    .withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                isProfit ? Icons.trending_up : Icons.trending_down,
+                color: isProfit ? AppTheme.successColor : AppTheme.dangerColor,
+                size: 32,
+              ),
             ),
-          ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Total Profit/Loss',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: AppTheme.textSecondary(context),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${isProfit ? '+' : ''}${profit.toStringAsFixed(2)} units',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: isProfit ? AppTheme.successColor : AppTheme.dangerColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-        ...leagues.map((league) => _LeagueRow(league: league)),
-      ],
+      ),
     );
   }
 
-  Widget _buildRecentResults() {
-    final results = stats!['recent_results'] as List;
-    if (results.isEmpty) return const SizedBox();
+  Widget _buildStreakCard() {
+    if (stats == null) return const SizedBox();
     
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    final currentStreak = stats!['currentStreak'] ?? 0;
+    final bestStreak = stats!['bestStreak'] ?? 0;
+    
+    return Card(
+      elevation: 0,
+      color: AppTheme.cardColor(context),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: AppTheme.borderColor(context)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Recent Results',
+              'Winning Streaks',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
                 color: AppTheme.textPrimary(context),
               ),
             ),
-            TextButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.history, size: 16),
-              label: const Text('View All'),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _StreakItem(
+                    icon: Icons.local_fire_department,
+                    value: currentStreak,
+                    label: 'Current',
+                    color: currentStreak > 0 ? AppTheme.warningColor : Colors.grey,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _StreakItem(
+                    icon: Icons.emoji_events,
+                    value: bestStreak,
+                    label: 'Best Ever',
+                    color: AppTheme.successColor,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
-        const SizedBox(height: 12),
-        ...results.map((result) => _ResultRow(result: result)),
+      ),
+    );
+  }
+
+  Widget _buildInsightsCard() {
+    if (stats == null) return const SizedBox();
+    
+    final totalPredictions = stats!['totalPredictions'] ?? 0;
+    final winRate = stats!['winRate'] ?? 0.0;
+    final profit = (stats!['totalProfit'] ?? 0.0).toDouble();
+    
+    String insight = _getInsight(totalPredictions, winRate, profit);
+    IconData insightIcon = _getInsightIcon(winRate, profit);
+    Color insightColor = _getInsightColor(winRate, profit);
+    
+    return Card(
+      elevation: 0,
+      color: insightColor.withOpacity(0.1),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: insightColor.withOpacity(0.3)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          children: [
+            Icon(insightIcon, color: insightColor, size: 32),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Performance Insight',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: insightColor,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    insight,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppTheme.textPrimary(context),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getInsight(int total, double winRate, double profit) {
+    if (total == 0) {
+      return 'Start tracking predictions to see your performance insights!';
+    } else if (total < 10) {
+      return 'Keep tracking! You need at least 10 predictions for reliable statistics.';
+    } else if (winRate >= 70 && profit > 0) {
+      return 'Excellent performance! You\'re consistently making profitable predictions.';
+    } else if (winRate >= 60) {
+      return 'Great win rate! Focus on higher odds to maximize your profits.';
+    } else if (winRate >= 50) {
+      return 'Good progress! Analyze your losing predictions to improve further.';
+    } else {
+      return 'Keep learning! Review your strategy and focus on quality over quantity.';
+    }
+  }
+
+  IconData _getInsightIcon(double winRate, double profit) {
+    if (winRate >= 70 && profit > 0) return Icons.star;
+    if (winRate >= 60) return Icons.trending_up;
+    if (winRate >= 50) return Icons.lightbulb_outline;
+    return Icons.school;
+  }
+
+  Color _getInsightColor(double winRate, double profit) {
+    if (winRate >= 70 && profit > 0) return AppTheme.successColor;
+    if (winRate >= 60) return AppTheme.primaryColor;
+    if (winRate >= 50) return AppTheme.warningColor;
+    return Colors.blue;
+  }
+
+  Widget _buildQuickActions() {
+    return Card(
+      elevation: 0,
+      color: AppTheme.cardColor(context),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: AppTheme.borderColor(context)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Quick Actions',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary(context),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _ActionButton(
+              icon: Icons.refresh,
+              label: 'Refresh Statistics',
+              onTap: _loadStats,
+            ),
+            const SizedBox(height: 8),
+            _ActionButton(
+              icon: Icons.add_circle_outline,
+              label: 'Record New Result',
+              onTap: _showRecordResultDialog,
+            ),
+            const SizedBox(height: 8),
+            _ActionButton(
+              icon: Icons.delete_outline,
+              label: 'Reset Statistics',
+              onTap: _showResetConfirmation,
+              isDestructive: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showRecordResultDialog() {
+    if (userId == null) return;
+    
+    showDialog(
+      context: context,
+      builder: (context) => _RecordResultDialog(userId: userId!),
+    ).then((_) => _loadStats());
+  }
+
+  void _showResetConfirmation() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reset Statistics?'),
+        content: const Text(
+          'This will permanently delete all your tracked predictions and statistics. This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              if (userId != null) {
+                await ApiService.updateUserStats(userId!, {
+                  'totalPredictions': 0,
+                  'correctPredictions': 0,
+                  'winRate': 0.0,
+                  'totalProfit': 0.0,
+                  'currentStreak': 0,
+                  'bestStreak': 0,
+                  'averageOdds': 0.0,
+                });
+                _loadStats();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Statistics reset successfully')),
+                  );
+                }
+              }
+            },
+            child: Text(
+              'Reset',
+              style: TextStyle(color: AppTheme.dangerColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ==================== RECORD RESULT DIALOG ====================
+
+class _RecordResultDialog extends StatefulWidget {
+  final String userId;
+
+  const _RecordResultDialog({required this.userId});
+
+  @override
+  State<_RecordResultDialog> createState() => _RecordResultDialogState();
+}
+
+class _RecordResultDialogState extends State<_RecordResultDialog> {
+  final _oddsController = TextEditingController(text: '2.00');
+  final _stakeController = TextEditingController(text: '10.0');
+  bool isCorrect = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Record Prediction Result'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: ChoiceChip(
+                  label: const Text('Won'),
+                  selected: isCorrect,
+                  onSelected: (selected) => setState(() => isCorrect = true),
+                  selectedColor: AppTheme.successColor.withOpacity(0.2),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ChoiceChip(
+                  label: const Text('Lost'),
+                  selected: !isCorrect,
+                  onSelected: (selected) => setState(() => isCorrect = false),
+                  selectedColor: AppTheme.dangerColor.withOpacity(0.2),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _oddsController,
+            decoration: const InputDecoration(
+              labelText: 'Odds',
+              border: OutlineInputBorder(),
+              prefixText: '@',
+            ),
+            keyboardType: TextInputType.number,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _stakeController,
+            decoration: const InputDecoration(
+              labelText: 'Stake (units)',
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: TextInputType.number,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            final odds = double.tryParse(_oddsController.text) ?? 2.0;
+            final stake = double.tryParse(_stakeController.text) ?? 10.0;
+            
+            await ApiService.recordPredictionResult(
+              userId: widget.userId,
+              isCorrect: isCorrect,
+              odds: odds,
+              stake: stake,
+            );
+            
+            if (context.mounted) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(isCorrect ? 'Win recorded! 🎉' : 'Loss recorded'),
+                  backgroundColor: isCorrect ? AppTheme.successColor : AppTheme.dangerColor,
+                ),
+              );
+            }
+          },
+          child: const Text('Record'),
+        ),
       ],
     );
+  }
+
+  @override
+  void dispose() {
+    _oddsController.dispose();
+    _stakeController.dispose();
+    super.dispose();
   }
 }
 
@@ -474,153 +853,98 @@ class _LegendItem extends StatelessWidget {
   }
 }
 
-class _LeagueRow extends StatelessWidget {
-  final Map<String, dynamic> league;
+class _StreakItem extends StatelessWidget {
+  final IconData icon;
+  final int value;
+  final String label;
+  final Color color;
 
-  const _LeagueRow({required this.league});
+  const _StreakItem({
+    required this.icon,
+    required this.value,
+    required this.label,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final accuracy = league['accuracy'] ?? 0;
-    final color = accuracy >= 70
-        ? AppTheme.successColor
-        : accuracy >= 60
-            ? AppTheme.warningColor
-            : AppTheme.dangerColor;
-    
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      elevation: 0,
-      color: AppTheme.cardColor(context),
-      shape: RoundedRectangleBorder(
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: AppTheme.borderColor(context)),
+        border: Border.all(color: color.withOpacity(0.3)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Container(
-              width: 4,
-              height: 40,
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(2),
-              ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 32),
+          const SizedBox(height: 8),
+          Text(
+            value.toString(),
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: color,
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    league['name'],
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  Text(
-                    '${league['count']} predictions',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.textSecondary(context),
-                    ),
-                  ),
-                ],
-              ),
+          ),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: AppTheme.textSecondary(context),
             ),
-            Text(
-              '$accuracy%',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-          ],
-        ),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }
 }
 
-class _ResultRow extends StatelessWidget {
-  final Map<String, dynamic> result;
+class _ActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool isDestructive;
 
-  const _ResultRow({required this.result});
+  const _ActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.isDestructive = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final won = result['won'] ?? false;
-    final color = won ? AppTheme.successColor : AppTheme.dangerColor;
+    final color = isDestructive ? AppTheme.dangerColor : AppTheme.primaryColor;
     
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      elevation: 0,
-      color: AppTheme.cardColor(context),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: AppTheme.borderColor(context)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          border: Border.all(color: AppTheme.borderColor(context)),
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                won ? Icons.check_rounded : Icons.close_rounded,
-                color: color,
-                size: 16,
-              ),
-            ),
+            Icon(icon, size: 20, color: color),
             const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    result['match'],
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  Text(
-                    '${result['pick']} • @${result['odds']}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.textSecondary(context),
-                    ),
-                  ),
-                ],
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: isDestructive ? color : AppTheme.textPrimary(context),
+                ),
               ),
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Chip(
-                  label: Text(
-                    won ? 'Won' : 'Lost',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: color,
-                    ),
-                  ),
-                  backgroundColor: color.withOpacity(0.1),
-                  side: BorderSide.none,
-                  padding: EdgeInsets.zero,
-                  visualDensity: VisualDensity.compact,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  result['date'],
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppTheme.textSecondary(context),
-                  ),
-                ),
-              ],
+            Icon(
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: AppTheme.textSecondary(context),
             ),
           ],
         ),
