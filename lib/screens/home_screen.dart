@@ -65,7 +65,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return Scaffold(
+      backgroundColor: AppTheme.bgColor(context),
       body: PageView(
         controller: _pageController,
         onPageChanged: _onPageChanged,
@@ -77,17 +80,23 @@ class _HomeScreenState extends State<HomeScreen> {
           ProfileScreen(),
         ],
       ),
-      bottomNavigationBar: _buildBottomNav(),
+      bottomNavigationBar: _buildBottomNav(isDark),
     );
   }
 
-  Widget _buildBottomNav() {
+  Widget _buildBottomNav(bool isDark) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? AppTheme.darkSurface : Colors.white,
+        border: Border(
+          top: BorderSide(
+            color: isDark ? AppTheme.darkCard : Colors.grey.shade200,
+            width: 1,
+          ),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: (isDark ? Colors.black : Colors.grey).withOpacity(0.1),
             blurRadius: 8,
             offset: const Offset(0, -2),
           ),
@@ -95,12 +104,12 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: List.generate(
               _navItems.length,
-              (index) => _buildNavItem(index),
+              (index) => _buildNavItem(index, isDark),
             ),
           ),
         ),
@@ -108,39 +117,51 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildNavItem(int index) {
+  Widget _buildNavItem(int index, bool isDark) {
     final item = _navItems[index];
     final isSelected = _currentIndex == index;
 
-    return GestureDetector(
-      onTap: () => _onNavTap(index),
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? AppTheme.primaryColor.withOpacity(0.1)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              isSelected ? item.activeIcon : item.icon,
-              color: isSelected ? AppTheme.primaryColor : Colors.grey.shade600,
-              size: 24,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              item.label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                color: isSelected ? AppTheme.primaryColor : Colors.grey.shade600,
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => _onNavTap(index),
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? (isDark 
+                    ? AppTheme.accentColor.withOpacity(0.15)
+                    : AppTheme.primaryColor.withOpacity(0.1))
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                child: Icon(
+                  isSelected ? item.activeIcon : item.icon,
+                  color: isSelected
+                      ? (isDark ? AppTheme.accentColor : AppTheme.primaryColor)
+                      : (isDark ? Colors.white54 : Colors.grey.shade600),
+                  size: isSelected ? 26 : 24,
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 4),
+              Text(
+                item.label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                  color: isSelected
+                      ? (isDark ? AppTheme.accentColor : AppTheme.primaryColor)
+                      : (isDark ? Colors.white54 : Colors.grey.shade600),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

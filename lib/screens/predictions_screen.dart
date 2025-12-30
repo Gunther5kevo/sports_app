@@ -1,10 +1,8 @@
 // lib/screens/predictions_screen.dart
 
 import 'package:flutter/material.dart';
-import 'dart:math' as math;
-import '../theme/app_theme.dart';
-import '../constants/app_constants.dart';
-import '../services/api_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/ai_prediction_service.dart';
 import '../models/prediction.dart';
 
 class PredictionsScreen extends StatefulWidget {
@@ -14,424 +12,377 @@ class PredictionsScreen extends StatefulWidget {
   State<PredictionsScreen> createState() => _PredictionsScreenState();
 }
 
-class _PredictionsScreenState extends State<PredictionsScreen> 
-    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
-  
-  @override
-  bool get wantKeepAlive => true;
-
+class _PredictionsScreenState extends State<PredictionsScreen> {
   List<Prediction> predictions = [];
   bool isLoading = true;
   String selectedFilter = 'All';
-  
-  late AnimationController _pulseController;
-  late AnimationController _slideController;
-  late Animation<double> _pulseAnimation;
-  late Animation<Offset> _slideAnimation;
+  bool isAiEnabled = false;
+  Map<String, dynamic>? aiStats;
 
-  static const filters = ['All', 'High Confidence', 'Medium Risk', 'Value Bets'];
+  static const filters = ['All', 'High Confidence', 'Medium', 'Value'];
 
   @override
   void initState() {
     super.initState();
-    
-    _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 2000),
-      vsync: this,
-    )..repeat(reverse: true);
-    
-    _slideController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-    
-    _pulseAnimation = Tween<double>(begin: 0.95, end: 1.05).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
-    
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.3),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _slideController,
-      curve: Curves.easeOutCubic,
-    ));
-    
+    _checkAiStatus();
     _loadPredictions();
+    _loadStats();
   }
 
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    _slideController.dispose();
-    super.dispose();
+  void _checkAiStatus() {
+    isAiEnabled = AIPredictionService.isConfigured;
   }
 
-  Future<void> _loadPredictions() async {
+  Future<void> _loadPredictions({bool forceRegenerate = false}) async {
     setState(() => isLoading = true);
-    
+
     try {
-      final fetchedPredictions = await ApiService.getPredictions();
+      if (forceRegenerate) {
+        // Clear the generation tracker to force regeneration
+        await FirebaseFirestore.instance
+            .collection('prediction_metadata')
+            .doc('generation_tracker')
+            .delete();
+
+        print('🔄 Force regenerating predictions...');
+      }
+
+      final data = await AIPredictionService.getPredictions();
       if (mounted) {
         setState(() {
-          predictions = fetchedPredictions;
+          predictions = data;
           isLoading = false;
         });
-        _slideController.forward(from: 0);
       }
     } catch (e) {
       if (mounted) {
         setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading predictions: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
+    }
+  }
+
+  Future<void> _loadStats() async {
+    try {
+      final stats = await AIPredictionService.getPredictionStats();
+      if (mounted) {
+        setState(() => aiStats = stats);
+      }
+    } catch (e) {
+      print('Error loading stats: $e');
     }
   }
 
   List<Prediction> get filteredPredictions {
     if (selectedFilter == 'All') return predictions;
-    
+
     return predictions.where((p) {
       switch (selectedFilter) {
-        case 'High Confidence': return p.confidence >= 75;
-        case 'Medium Risk': return p.confidence >= 65 && p.confidence < 75;
-        case 'Value Bets': return p.odds >= 2.0;
-        default: return true;
+        case 'High Confidence':
+          return p.confidence >= 75;
+        case 'Medium':
+          return p.confidence >= 65 && p.confidence < 75;
+        case 'Value':
+          return p.odds >= 2.0;
+        default:
+          return true;
       }
     }).toList();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    
-    return Scaffold(
-      backgroundColor: AppTheme.bgColor(context),
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
-          _buildHeader(),
-          if (isLoading)
-            SliverFillRemaining(
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    ScaleTransition(
-                      scale: _pulseAnimation,
-                      child: Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [AppTheme.primaryColor, AppTheme.secondaryColor],
-                          ),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.primaryColor.withOpacity(0.4),
-                              blurRadius: 20,
-                              spreadRadius: 5,
-                            ),
-                          ],
-                        ),
-                        child: const Icon(Icons.sports_soccer, size: 40, color: Colors.white),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'Loading predictions...',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textSecondary(context),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else ...[
-            SliverToBoxAdapter(
-              child: SlideTransition(
-                position: _slideAnimation,
-                child: FadeTransition(
-                  opacity: _slideController,
-                  child: _buildSummaryCard(),
-                ),
-              ),
-            ),
-            SliverToBoxAdapter(child: _buildFilterChips()),
-            SliverToBoxAdapter(child: _buildDisclaimerBanner()),
-            filteredPredictions.isEmpty
-                ? _buildEmptyState()
-                : _buildPredictionsList(),
+  void _confirmRegenerate() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('Regenerate Predictions?'),
           ],
+        ),
+        content: const Text(
+          'This will use OpenAI API credits and generate new predictions. '
+          'Current predictions will be replaced. Are you sure?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _loadPredictions(forceRegenerate: true);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purple,
+            ),
+            child: const Text('Regenerate'),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildHeader() {
-    return SliverAppBar(
-      expandedHeight: 140,
-      floating: false,
-      pinned: true,
-      backgroundColor: AppTheme.primaryColor,
-      flexibleSpace: FlexibleSpaceBar(
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.background,
+      appBar: AppBar(
         title: Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            ScaleTransition(
-              scale: _pulseAnimation,
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.auto_awesome, size: 16, color: Colors.white),
-              ),
-            ),
-            const SizedBox(width: 8),
             const Text(
-              'AI Predictions',
-              style: TextStyle(fontWeight: FontWeight.bold),
+              'Match Predictions',
+              style: TextStyle(fontWeight: FontWeight.w600),
             ),
-          ],
-        ),
-        titlePadding: const EdgeInsets.only(left: 16, bottom: 16),
-        background: Stack(
-          fit: StackFit.expand,
-          children: [
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    AppTheme.primaryColor,
-                    AppTheme.secondaryColor,
-                    Color(0xFF1a237e),
+            if (isAiEnabled) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.purple.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.purple.withOpacity(0.3)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.auto_awesome, size: 14, color: Colors.purple),
+                    SizedBox(width: 4),
+                    Text(
+                      'AI',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.purple,
+                      ),
+                    ),
                   ],
                 ),
               ),
-            ),
-            Positioned.fill(
-              child: AnimatedBuilder(
-                animation: _pulseController,
-                builder: (context, child) {
-                  return CustomPaint(
-                    painter: _BackgroundPatternPainter(_pulseController.value),
-                  );
-                },
-              ),
-            ),
+            ],
           ],
         ),
-      ),
-      actions: [
-        AnimatedBuilder(
-          animation: _pulseController,
-          builder: (context, child) {
-            return Transform.rotate(
-              angle: _pulseController.value * 2 * math.pi,
-              child: IconButton(
-                icon: const Icon(Icons.refresh_rounded),
-                tooltip: 'Refresh',
-                onPressed: isLoading ? null : _loadPredictions,
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'refresh') {
+                _loadPredictions();
+              } else if (value == 'regenerate') {
+                _confirmRegenerate();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'refresh',
+                child: Row(
+                  children: [
+                    Icon(Icons.refresh),
+                    SizedBox(width: 12),
+                    Text('Refresh'),
+                  ],
+                ),
               ),
-            );
-          },
-        ),
-      ],
+              if (isAiEnabled)
+                const PopupMenuItem(
+                  value: 'regenerate',
+                  child: Row(
+                    children: [
+                      Icon(Icons.auto_awesome, color: Colors.purple),
+                      SizedBox(width: 12),
+                      Text('Regenerate AI'),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            onPressed: () => _showInfoDialog(context),
+            tooltip: 'Info',
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          if (isAiEnabled && aiStats != null) _buildAiStatsSection(),
+          _buildStatsSection(),
+          _buildFilterSection(),
+          Expanded(
+            child: isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : filteredPredictions.isEmpty
+                    ? _buildEmptyState()
+                    : _buildPredictionsList(),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildSummaryCard() {
-    final highConfCount = predictions.where((p) => p.confidence >= 75).length;
-    final avgConfidence = predictions.isEmpty 
-        ? 0 
-        : predictions.fold<int>(0, (sum, p) => sum + p.confidence) / predictions.length;
-    
-    return Card(
+  Widget _buildAiStatsSection() {
+    final accuracy = aiStats?['accuracy'] ?? 0.0;
+    final total = aiStats?['total'] ?? 0;
+
+    if (total == 0) return const SizedBox.shrink();
+
+    return Container(
       margin: const EdgeInsets.all(16),
-      elevation: 8,
-      shadowColor: AppTheme.primaryColor.withOpacity(0.3),
-      color: AppTheme.cardColor(context),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: AppTheme.primaryColor.withOpacity(0.2), width: 1.5),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.purple.withOpacity(0.1),
+            Colors.blue.withOpacity(0.1)
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.purple.withOpacity(0.3)),
       ),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              AppTheme.cardColor(context),
-              AppTheme.primaryColor.withOpacity(0.05),
-            ],
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.purple.withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.psychology,
+              color: Colors.purple,
+              size: 24,
+            ),
           ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  AnimatedBuilder(
-                    animation: _pulseAnimation,
-                    builder: (context, child) {
-                      return Transform.scale(
-                        scale: _pulseAnimation.value,
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [AppTheme.primaryColor, AppTheme.secondaryColor],
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppTheme.primaryColor.withOpacity(0.4),
-                                blurRadius: 12,
-                                spreadRadius: 2,
-                              ),
-                            ],
-                          ),
-                          child: const Icon(Icons.psychology, color: Colors.white, size: 26),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ShaderMask(
-                          shaderCallback: (bounds) => const LinearGradient(
-                            colors: [AppTheme.primaryColor, AppTheme.secondaryColor],
-                          ).createShader(bounds),
-                          child: const Text(
-                            'AI Insights',
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: AppTheme.successColor.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: AppTheme.successColor.withOpacity(0.4),
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.bolt,
-                                    size: 12,
-                                    color: AppTheme.successColor,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '${predictions.length} Live',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: AppTheme.successColor,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: _QuickStat(
-                      icon: Icons.local_fire_department,
-                      label: 'Hot Picks',
-                      value: '$highConfCount',
-                      color: Colors.orange,
-                      animation: _pulseAnimation,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _QuickStat(
-                      icon: Icons.show_chart,
-                      label: 'Avg. Win Rate',
-                      value: '${avgConfidence.toStringAsFixed(0)}%',
-                      color: AppTheme.primaryColor,
-                      animation: _pulseAnimation,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'AI Prediction Accuracy',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${accuracy.toStringAsFixed(1)}% accurate over $total predictions',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.7),
+                      ),
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 
-  Widget _buildFilterChips() {
+  Widget _buildStatsSection() {
+    final highConfCount = predictions.where((p) => p.confidence >= 75).length;
+    final avgConfidence = predictions.isEmpty
+        ? 0
+        : predictions.fold<int>(0, (sum, p) => sum + p.confidence) /
+            predictions.length;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                backgroundColor:
+                    Theme.of(context).primaryColor.withOpacity(0.1),
+                child: Icon(
+                  Icons.insights,
+                  color: Theme.of(context).primaryColor,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Today\'s Predictions',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  Text(
+                    '${predictions.length} matches analyzed',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.6),
+                        ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _StatTile(
+                  title: 'High Confidence',
+                  value: '$highConfCount',
+                  color: Colors.green,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _StatTile(
+                  title: 'Average Confidence',
+                  value: '${avgConfidence.toStringAsFixed(0)}%',
+                  color: Theme.of(context).primaryColor,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterSection() {
     return SizedBox(
-      height: 52,
+      height: 40,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        physics: const BouncingScrollPhysics(),
         itemCount: filters.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final filter = filters[index];
           final selected = selectedFilter == filter;
-          
-          return AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOutCubic,
-            child: FilterChip(
-              label: Text(filter),
-              selected: selected,
-              onSelected: (_) {
-                setState(() => selectedFilter = filter);
-                _slideController.forward(from: 0);
-              },
-              backgroundColor: AppTheme.cardColor(context),
-              selectedColor: AppTheme.primaryColor,
-              checkmarkColor: Colors.white,
-              elevation: selected ? 4 : 0,
-              shadowColor: AppTheme.primaryColor.withOpacity(0.4),
-              labelStyle: TextStyle(
-                fontSize: 14,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                color: selected ? Colors.white : AppTheme.textPrimary(context),
-              ),
-              side: BorderSide(
-                color: selected 
-                    ? AppTheme.primaryColor 
-                    : AppTheme.borderColor(context),
-                width: selected ? 2 : 1,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+
+          return ChoiceChip(
+            label: Text(filter),
+            selected: selected,
+            onSelected: (_) => setState(() => selectedFilter = filter),
+            selectedColor: Theme.of(context).primaryColor,
+            labelStyle: TextStyle(
+              fontSize: 14,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+              color: selected
+                  ? Colors.white
+                  : Theme.of(context).colorScheme.onSurface,
             ),
           );
         },
@@ -439,553 +390,263 @@ class _PredictionsScreenState extends State<PredictionsScreen>
     );
   }
 
-  Widget _buildDisclaimerBanner() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Colors.orange.shade50,
-            Colors.amber.shade50,
-          ],
-        ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.orange.shade300, width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.orange.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.orange.shade100,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(Icons.info, color: Colors.orange.shade800, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              AppConstants.responsibleGamblingNotice,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade800,
-                height: 1.4,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildPredictionsList() {
-    return SliverPadding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      sliver: SliverList(
-        delegate: SliverChildBuilderDelegate(
-          (context, index) {
-            return TweenAnimationBuilder<double>(
-              duration: Duration(milliseconds: 400 + (index * 100)),
-              tween: Tween(begin: 0.0, end: 1.0),
-              curve: Curves.easeOutCubic,
-              builder: (context, value, child) {
-                return Transform.translate(
-                  offset: Offset(0, 30 * (1 - value)),
-                  child: Opacity(
-                    opacity: value,
-                    child: child,
-                  ),
-                );
-              },
-              child: _PredictionCard(
-                prediction: filteredPredictions[index],
-                onTap: () => _showPredictionDetails(filteredPredictions[index]),
-              ),
-            );
-          },
-          childCount: filteredPredictions.length,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return SliverFillRemaining(
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.filter_list_off,
-                size: 64,
-                color: Colors.grey.shade400,
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'No Predictions Found',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey.shade700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Try adjusting your filters',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showPredictionDetails(Prediction pred) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _PredictionDetailsSheet(prediction: pred),
-    );
-  }
-}
-
-// ==================== CUSTOM PAINTER ====================
-
-class _BackgroundPatternPainter extends CustomPainter {
-  final double animationValue;
-
-  _BackgroundPatternPainter(this.animationValue);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withOpacity(0.05)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-
-    for (int i = 0; i < 5; i++) {
-      final offset = (animationValue + i * 0.2) % 1.0;
-      final radius = size.width * (0.3 + offset * 0.7);
-      canvas.drawCircle(
-        Offset(size.width * 0.8, size.height * 0.3),
-        radius,
-        paint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _BackgroundPatternPainter oldDelegate) {
-    return oldDelegate.animationValue != animationValue;
-  }
-}
-
-// ==================== REUSABLE COMPONENTS ====================
-
-class _QuickStat extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color color;
-  final Animation<double> animation;
-
-  const _QuickStat({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.color,
-    required this.animation,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: animation,
-      builder: (context, child) {
-        return Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                color.withOpacity(0.15),
-                color.withOpacity(0.05),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: color.withOpacity(0.3), width: 1.5),
-            boxShadow: [
-              BoxShadow(
-                color: color.withOpacity(0.2 * animation.value),
-                blurRadius: 8,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Transform.scale(
-                scale: animation.value,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: color,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: color.withOpacity(0.4),
-                        blurRadius: 8,
-                        spreadRadius: 1,
-                      ),
-                    ],
-                  ),
-                  child: Icon(icon, color: Colors.white, size: 18),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      value,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: color,
-                      ),
-                    ),
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textSecondary(context),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: filteredPredictions.length,
+      separatorBuilder: (context, index) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final pred = filteredPredictions[index];
+        return _PredictionCard(
+          prediction: pred,
+          isAiGenerated: pred.id.startsWith('ai_'),
         );
       },
     );
   }
-}
 
-class _PredictionCard extends StatefulWidget {
-  final Prediction prediction;
-  final VoidCallback onTap;
-
-  const _PredictionCard({
-    required this.prediction,
-    required this.onTap,
-  });
-
-  @override
-  State<_PredictionCard> createState() => _PredictionCardState();
-}
-
-class _PredictionCardState extends State<_PredictionCard>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _shimmerController;
-  bool _isHovered = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _shimmerController = AnimationController(
-      duration: const Duration(milliseconds: 2000),
-      vsync: this,
-    )..repeat();
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.search_off,
+            size: 64,
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No matches found',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withOpacity(0.7),
+                ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Try selecting a different filter',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withOpacity(0.5),
+                ),
+          ),
+        ],
+      ),
+    );
   }
 
-  @override
-  void dispose() {
-    _shimmerController.dispose();
-    super.dispose();
+  void _showInfoDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              isAiEnabled ? Icons.auto_awesome : Icons.info_outline,
+              color: isAiEnabled
+                  ? Colors.purple
+                  : Theme.of(context).primaryColor,
+            ),
+            const SizedBox(width: 8),
+            Text(isAiEnabled ? 'AI Predictions' : 'Predictions Info'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (isAiEnabled) ...[
+              const Text(
+                '🤖 AI-Powered Analysis',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Our predictions use advanced AI to analyze:',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 8),
+              const _InfoBullet('Team form and recent results'),
+              const _InfoBullet('Head-to-head history'),
+              const _InfoBullet('Home advantage statistics'),
+              const _InfoBullet('League position & importance'),
+              const _InfoBullet('Tactical matchups'),
+              const _InfoBullet('Historical goal patterns'),
+            ] else ...[
+              const Text(
+                'Our predictions are based on:',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 8),
+              const _InfoBullet('Team strength analysis'),
+              const _InfoBullet('Home advantage'),
+              const _InfoBullet('Current odds'),
+              const _InfoBullet('League competitiveness'),
+            ],
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber, size: 20, color: Colors.orange),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Gamble responsibly. Predictions are for entertainment only.',
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.orange.shade800),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
+}
+
+class _InfoBullet extends StatelessWidget {
+  final String text;
+
+  const _InfoBullet(this.text);
 
   @override
   Widget build(BuildContext context) {
-    final confLevel = widget.prediction.confidence >= 75 
-        ? 'High' 
-        : widget.prediction.confidence >= 65 
-            ? 'Medium' 
-            : 'Low';
-    final confColor = AppTheme.getConfidenceColor(confLevel);
-    final isHighConf = widget.prediction.confidence >= 75;
-    
+    return Padding(
+      padding: const EdgeInsets.only(left: 8, bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('• ', style: TextStyle(fontSize: 16)),
+          Expanded(
+            child: Text(text, style: const TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PredictionCard extends StatelessWidget {
+  final Prediction prediction;
+  final bool isAiGenerated;
+
+  const _PredictionCard({
+    required this.prediction,
+    this.isAiGenerated = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final confidenceColor = _getConfidenceColor(prediction.confidence);
+
     return Card(
-      margin: const EdgeInsets.only(bottom: 14),
-      elevation: _isHovered ? 12 : 4,
-      shadowColor: isHighConf 
-          ? AppTheme.successColor.withOpacity(0.3)
-          : Colors.black.withOpacity(0.1),
-      color: AppTheme.cardColor(context),
+      elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: isHighConf 
-              ? AppTheme.successColor.withOpacity(0.4)
-              : AppTheme.borderColor(context),
-          width: isHighConf ? 2 : 1,
+          color: isAiGenerated
+              ? Colors.purple.withOpacity(0.3)
+              : Theme.of(context).dividerColor.withOpacity(0.2),
         ),
       ),
-      child: Stack(
-        children: [
-          if (isHighConf)
-            Positioned.fill(
-              child: AnimatedBuilder(
-                animation: _shimmerController,
-                builder: (context, child) {
-                  return ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: CustomPaint(
-                      painter: _ShimmerPainter(_shimmerController.value),
-                    ),
-                  );
-                },
-              ),
-            ),
-          InkWell(
-            onTap: widget.onTap,
-            onHover: (hover) => setState(() => _isHovered = hover),
-            borderRadius: BorderRadius.circular(18),
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _showDetails(context, prediction),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Row(
                     children: [
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                AppTheme.primaryColor.withOpacity(0.15),
-                                AppTheme.secondaryColor.withOpacity(0.15),
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: AppTheme.primaryColor.withOpacity(0.3),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.sports,
-                                size: 14,
-                                color: AppTheme.primaryColor,
-                              ),
-                              const SizedBox(width: 6),
-                              Flexible(
-                                child: Text(
-                                  widget.prediction.league,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppTheme.primaryColor,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              confColor.withOpacity(0.2),
-                              confColor.withOpacity(0.1),
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: confColor, width: 1.5),
-                          boxShadow: [
-                            BoxShadow(
-                              color: confColor.withOpacity(0.3),
-                              blurRadius: 8,
-                              spreadRadius: 1,
-                            ),
-                          ],
+                          color: Theme.of(context)
+                              .primaryColor
+                              .withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(6),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.offline_bolt, size: 16, color: confColor),
-                            const SizedBox(width: 4),
-                            Text(
-                              '${widget.prediction.confidence}%',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: confColor,
-                              ),
-                            ),
-                          ],
+                        child: Text(
+                          prediction.league,
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(context).primaryColor,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    '${widget.prediction.homeTeam} vs ${widget.prediction.awayTeam}',
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                      height: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          AppTheme.successColor.withOpacity(0.08),
-                          AppTheme.successColor.withOpacity(0.03),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: AppTheme.successColor.withOpacity(0.3),
-                        width: 1.5,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
+                      if (isAiGenerated) ...[
+                        const SizedBox(width: 6),
                         Container(
-                          padding: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: AppTheme.successColor,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppTheme.successColor.withOpacity(0.4),
-                                blurRadius: 8,
-                                spreadRadius: 2,
-                              ),
-                            ],
+                            color: Colors.purple.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4),
                           ),
-                          child: const Icon(
-                            Icons.star_rounded,
-                            size: 16,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          child: const Row(
                             children: [
+                              Icon(Icons.auto_awesome,
+                                  size: 10, color: Colors.purple),
+                              SizedBox(width: 2),
                               Text(
-                                widget.prediction.pick,
-                                style: const TextStyle(
+                                'AI',
+                                style: TextStyle(
+                                  fontSize: 10,
                                   fontWeight: FontWeight.bold,
-                                  fontSize: 15,
+                                  color: Colors.purple,
                                 ),
                               ),
-                              const SizedBox(height: 2),
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.trending_up,
-                                    size: 14,
-                                    color: AppTheme.successColor,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'Odds: ${widget.prediction.odds.toStringAsFixed(2)}',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppTheme.textSecondary(context),
-                                    ),
-                                  ),
-                                ],
-                              ),
                             ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: AppTheme.successColor.withOpacity(0.15),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.arrow_forward_ios,
-                            size: 14,
-                            color: AppTheme.successColor,
                           ),
                         ),
                       ],
-                    ),
+                    ],
                   ),
-                  const SizedBox(height: 12),
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: AppTheme.bgColor(context),
-                      borderRadius: BorderRadius.circular(10),
+                      color: confidenceColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
                     ),
                     child: Row(
                       children: [
                         Icon(
-                          Icons.analytics_outlined,
-                          size: 16,
-                          color: AppTheme.textSecondary(context),
+                          Icons.circle,
+                          size: 8,
+                          color: confidenceColor,
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            widget.prediction.analysis,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: AppTheme.textSecondary(context),
-                              height: 1.4,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                        const SizedBox(width: 4),
+                        Text(
+                          '${prediction.confidence}%',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: confidenceColor,
                           ),
                         ),
                       ],
@@ -993,319 +654,71 @@ class _PredictionCardState extends State<_PredictionCard>
                   ),
                 ],
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ShimmerPainter extends CustomPainter {
-  final double progress;
-
-  _ShimmerPainter(this.progress);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          Colors.transparent,
-          AppTheme.successColor.withOpacity(0.1),
-          Colors.transparent,
-        ],
-        stops: [
-          progress - 0.3,
-          progress,
-          progress + 0.3,
-        ],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, size.width, size.height),
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _ShimmerPainter oldDelegate) {
-    return oldDelegate.progress != progress;
-  }
-}
-
-class _PredictionDetailsSheet extends StatefulWidget {
-  final Prediction prediction;
-
-  const _PredictionDetailsSheet({required this.prediction});
-
-  @override
-  State<_PredictionDetailsSheet> createState() =>
-      _PredictionDetailsSheetState();
-}
-
-class _PredictionDetailsSheetState extends State<_PredictionDetailsSheet>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-  late Animation<double> _fadeAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-
-    _scaleAnimation = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOutCubic,
-    );
-
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
-    );
-
-    _controller.forward();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final confLevel = widget.prediction.confidence >= 75
-        ? 'High'
-        : widget.prediction.confidence >= 65
-            ? 'Medium'
-            : 'Low';
-    final confColor = AppTheme.getConfidenceColor(confLevel);
-
-    return FadeTransition(
-      opacity: _fadeAnimation,
-      child: ScaleTransition(
-        scale: _scaleAnimation,
-        alignment: Alignment.bottomCenter,
-        child: Container(
-          height: MediaQuery.of(context).size.height * 0.78,
-          decoration: BoxDecoration(
-            color: AppTheme.cardColor(context),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.2),
-                blurRadius: 20,
-                spreadRadius: 5,
+              const SizedBox(height: 12),
+              Text(
+                '${prediction.homeTeam} vs ${prediction.awayTeam}',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
-            ],
-          ),
-          child: Column(
-            children: [
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                width: 50,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-              Expanded(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Text(
+                        'Prediction',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.6),
+                            ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        prediction.pick,
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ],
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        'Odds',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.6),
+                            ),
+                      ),
+                      const SizedBox(height: 4),
                       Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              AppTheme.primaryColor.withOpacity(0.1),
-                              AppTheme.secondaryColor.withOpacity(0.1),
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(18),
+                          borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: AppTheme.primaryColor.withOpacity(0.3),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      colors: [
-                                        AppTheme.primaryColor,
-                                        AppTheme.secondaryColor,
-                                      ],
-                                    ),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Icon(
-                                    Icons.sports_soccer,
-                                    color: Colors.white,
-                                    size: 22,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    widget.prediction.league,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppTheme.textSecondary(context),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              '${widget.prediction.homeTeam} vs ${widget.prediction.awayTeam}',
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                height: 1.2,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _DetailCard(
-                              icon: Icons.sports,
-                              label: 'Prediction',
-                              value: widget.prediction.pick,
-                              color: AppTheme.successColor,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _DetailCard(
-                              icon: Icons.trending_up,
-                              label: 'Odds',
-                              value: widget.prediction.odds.toStringAsFixed(2),
-                              color: AppTheme.primaryColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      _DetailCard(
-                        icon: Icons.psychology,
-                        label: 'AI Confidence',
-                        value: '${widget.prediction.confidence}% ($confLevel)',
-                        color: confColor,
-                        isWide: true,
-                      ),
-                      const SizedBox(height: 28),
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [
-                                  AppTheme.primaryColor,
-                                  AppTheme.secondaryColor,
-                                ],
-                              ),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(
-                              Icons.auto_awesome,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          const Text(
-                            'AI Analysis',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppTheme.bgColor(context),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: AppTheme.borderColor(context),
+                            color: Theme.of(context).dividerColor,
                           ),
                         ),
                         child: Text(
-                          widget.prediction.analysis,
+                          prediction.odds.toStringAsFixed(2),
                           style: const TextStyle(
-                            fontSize: 15,
-                            height: 1.7,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Colors.orange.shade50,
-                              Colors.amber.shade50,
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: Colors.orange.shade200,
-                            width: 1.5,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.warning_amber_rounded,
-                              color: Colors.orange.shade700,
-                              size: 24,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'Remember: Bet responsibly. Never wager more than you can afford to lose.',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey.shade800,
-                                  height: 1.4,
-                                ),
-                              ),
-                            ),
-                          ],
                         ),
                       ),
                     ],
                   ),
-                ),
+                ],
               ),
             ],
           ),
@@ -1313,87 +726,237 @@ class _PredictionDetailsSheetState extends State<_PredictionDetailsSheet>
       ),
     );
   }
+
+  Color _getConfidenceColor(int confidence) {
+    if (confidence >= 75) return Colors.green;
+    if (confidence >= 65) return Colors.orange;
+    return Colors.grey;
+  }
+
+  void _showDetails(BuildContext context, Prediction pred) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) {
+            return Container(
+              padding: const EdgeInsets.all(20),
+              child: ListView(
+                controller: scrollController,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).dividerColor,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Text(
+                        'Match Details',
+                        style:
+                            Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                      ),
+                      if (isAiGenerated) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.auto_awesome,
+                                  size: 12, color: Colors.purple),
+                              SizedBox(width: 4),
+                              Text(
+                                'AI Generated',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.purple,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    '${pred.homeTeam} vs ${pred.awayTeam}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  Text(
+                    pred.league,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.6),
+                        ),
+                  ),
+                  const SizedBox(height: 20),
+                  _DetailRow(
+                    label: 'Prediction',
+                    value: pred.pick,
+                    icon: Icons.flag,
+                  ),
+                  _DetailRow(
+                    label: 'Confidence',
+                    value: '${pred.confidence}%',
+                    icon: Icons.assessment,
+                  ),
+                  _DetailRow(
+                    label: 'Odds',
+                    value: pred.odds.toStringAsFixed(2),
+                    icon: Icons.attach_money,
+                  ),
+                  const SizedBox(height: 20),
+                  const Divider(),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Analysis',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    pred.analysis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          height: 1.5,
+                        ),
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }
 
-class _DetailCard extends StatelessWidget {
-  final IconData icon;
-  final String label;
+class _StatTile extends StatelessWidget {
+  final String title;
   final String value;
   final Color color;
-  final bool isWide;
 
-  const _DetailCard({
-    required this.icon,
-    required this.label,
+  const _StatTile({
+    required this.title,
     required this.value,
     required this.color,
-    this.isWide = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            color.withOpacity(0.15),
-            color.withOpacity(0.05),
-          ],
+        borderRadius: BorderRadius.circular(12),
+        color: Theme.of(context).cardColor,
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withOpacity(0.2),
         ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.4), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.2),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
+            width: 4,
+            height: 32,
             decoration: BoxDecoration(
               color: color,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: color.withOpacity(0.4),
-                  blurRadius: 8,
-                  spreadRadius: 2,
-                ),
-              ],
+              borderRadius: BorderRadius.circular(2),
             ),
-            child: Icon(icon, color: Colors.white, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.6),
+                    ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+
+  const _DetailRow({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 20,
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.textSecondary(context),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: isWide ? 18 : 16,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                ),
-              ],
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium,
             ),
+          ),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
           ),
         ],
       ),

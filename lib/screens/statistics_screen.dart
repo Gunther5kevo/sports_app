@@ -38,7 +38,7 @@ class _StatisticsScreenState extends State<StatisticsScreen>
         user = userCredential.user;
       }
       
-      if (user != null && user.uid != null) {
+      if (user != null) {
         setState(() {
           userId = user!.uid;
         });

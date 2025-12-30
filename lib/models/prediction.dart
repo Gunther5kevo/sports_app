@@ -1,5 +1,7 @@
 // lib/models/prediction.dart
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class Prediction {
   final String id;
   final String homeTeam;
@@ -24,6 +26,21 @@ class Prediction {
   });
 
   factory Prediction.fromJson(Map<String, dynamic> json) {
+    // ✅ Handle created_at as either Timestamp or String
+    DateTime parsedCreatedAt;
+    final createdAtField = json['created_at'];
+    
+    if (createdAtField is Timestamp) {
+      // From Firestore
+      parsedCreatedAt = createdAtField.toDate();
+    } else if (createdAtField is String) {
+      // From JSON string
+      parsedCreatedAt = DateTime.parse(createdAtField);
+    } else {
+      // Fallback
+      parsedCreatedAt = DateTime.now();
+    }
+
     return Prediction(
       id: json['id'] ?? '',
       homeTeam: json['home_team'] ?? json['homeTeam'] ?? '',
@@ -33,9 +50,7 @@ class Prediction {
       odds: (json['odds'] ?? 0).toDouble(),
       confidence: json['confidence'] ?? 0,
       analysis: json['analysis'] ?? json['description'] ?? '',
-      createdAt: json['created_at'] != null 
-          ? DateTime.parse(json['created_at'])
-          : DateTime.now(),
+      createdAt: parsedCreatedAt,
     );
   }
 

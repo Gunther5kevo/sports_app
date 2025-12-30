@@ -189,7 +189,7 @@ class MatchCard extends StatelessWidget {
   }
 
   Widget _buildConfidenceChip(ThemeData theme) {
-    final color = AppTheme.getConfidenceColor(analysis.confidenceLevel);
+    final color = AppTheme.getConfidenceColor(int.parse(analysis.confidenceLevel));
 
     return Container(
       padding: const EdgeInsets.symmetric(
